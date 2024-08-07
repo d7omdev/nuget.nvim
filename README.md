@@ -101,3 +101,7 @@ require("nuget").setup({
 ```
 
 This will override the default keymaps with the ones you provide.
+
+## Contribution
+
+If you want to contribute to this project, feel free to submit a pull request. If you find any bugs or have suggestions for improvements, please open an issue. All contributions are welcome!
