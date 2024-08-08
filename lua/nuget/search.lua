@@ -187,6 +187,7 @@ function search.package_versions(package)
 					}
 				end,
 			}),
+			layout_config = { width = 0.40 },
 			sorter = conf.generic_sorter({}),
 			attach_mappings = function(_, map)
 				map("i", "<CR>", enter)
