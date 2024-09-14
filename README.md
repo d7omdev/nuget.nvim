@@ -22,7 +22,7 @@ If telescope.nvim and plenary.nvim are not already installed:
 ```lua
 -- init.lua:
 {
-  "abdulrahmanDev1/nuget.nvim",
+  "d7omdev/nuget.nvim",
   dependencies = {
     "nvim-lua/plenary.nvim",
     "nvim-telescope/telescope.nvim",
@@ -34,7 +34,7 @@ If telescope.nvim and plenary.nvim are not already installed:
 
 -- or plugins/nuget.lua
 return {
-  "abdulrahmanDev1/nuget.nvim",
+  "d7omdev/nuget.nvim",
   dependencies = {
     "nvim-lua/plenary.nvim",
     "nvim-telescope/telescope.nvim",
@@ -49,7 +49,7 @@ If telescope.nvim and plenary.nvim are already installed:
 
 ```lua
 {
-  "abdulrahmanDev1/nuget.nvim",
+  "d7omdev/nuget.nvim",
   config = function()
     require("nuget").setup()
   end,
