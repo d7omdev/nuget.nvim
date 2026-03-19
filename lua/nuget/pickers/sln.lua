@@ -76,7 +76,7 @@ M.upgrades          = function(sln_path, installed, opts)
                                     return
                                 end
                                 -- regenerate the project map to account for changes in the installed packages
-                                dotnet.get_installed_packages(sln_path, opts.dotnet, nil, function(new_installed)
+                                dotnet.get_installed_packages(sln_path, opts.dotnet, function(new_installed)
                                     vim.schedule(function()
                                         M.upgrades(sln_path, new_installed, opts)
                                     end)

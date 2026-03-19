@@ -65,7 +65,7 @@ return function(opts, callback)
                 if not sel then return end
 
                 local progress = notify.make_progress("Loading installed packages…")
-                dotnet.get_installed_packages(sel.path, opts.dotnet, nil, function(installed)
+                dotnet.get_installed_packages(sel.path, opts.dotnet, function(installed)
                     vim.schedule(function()
                         progress.finish(vim.tbl_count(installed) .. " packages indexed")
                         callback({ path = sel.path, filetype = sel.filetype, installed = installed, opts = opts })

@@ -72,7 +72,7 @@ M.remove = function(csproj_path, installed, opts)
                             return
                         end
 
-                        dotnet.get_installed_packages(csproj_path, opts.dotnet, nil, function(new_installed)
+                        dotnet.get_installed_packages(csproj_path, opts.dotnet, function(new_installed)
                             vim.schedule(function()
                                 M.remove(csproj_path, new_installed, opts)
                             end)

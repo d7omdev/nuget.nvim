@@ -35,6 +35,10 @@ function nuget.setup(opts)
         opts.keys = default_keys
     end
 
+    if opts.dotnet then
+        dotnet.setup(opts.dotnet)
+    end
+
     -- Disable keymaps if an empty keys table is provided
     if next(opts.keys) == nil then
         vim.api.nvim_del_keymap("n", default_keys.install[2])

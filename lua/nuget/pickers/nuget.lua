@@ -155,9 +155,9 @@ M.search            = function(targets, installed, opts)
                     M.install(targets, sel.value.id, vim.tbl_extend("force", opts, {
                         on_complete = function(ok, _)
                             if ok then
-                                dotnet.get_installed_packages_parse_csprojs(targets, opts.dotnet,
+                                dotnet.get_installed_packages_csprojs(targets, opts.dotnet,
                                     function(updated_installed)
-                                        M.search(targets, updated_installed, opts)
+                                        vim.schedule(function() M.search(targets, updated_installed, opts) end)
                                     end)
                             else
                                 M.search(targets, installed, opts)
@@ -354,7 +354,7 @@ M.install           = function(targets, package, opts)
     end
 
     for csproj, _ in pairs(csprojs_for_counts) do
-        dotnet.get_installed_packages_parse_csproj(csproj, opts.dotnet,
+        dotnet.get_installed_packages_csproj(csproj, opts.dotnet,
             function(map)
                 local info = map[package]
                 if info and info.version then
