@@ -1,10 +1,11 @@
-local notify                          = require("nuget.notify")
-local utils                           = require("nuget.utils")
-local M                               = {}
+local notify                           = require("nuget.notify")
+local utils                            = require("nuget.utils")
+local M                                = {}
 
----@alias dotnet_opts {
----dotnet_bin: string, -- binary to use for dotnet commands
----}
+---@class dotnet_opts
+---@field dotnet_bin string binary to use for dotnet commands
+---@field sources string[]? additional NuGet.config sources
+---@field cwd string? perform operations from this directory
 
 ---@class (exact) dotnet_package
 ---@field mixed_versions boolean whether the projects contain multiple different versions
@@ -28,7 +29,7 @@ local M                               = {}
 ---@param opts dotnet_opts
 ---@param method "parse" | "dotnet" | nil which method to use to retrieve the packages. Parse the files or use `dotnet list`
 ---@param callback fun(packages: dotnet_packages): nil called once with the retrieved packages
-M.get_installed_packages              = function(target, opts, method, callback)
+M.get_installed_packages               = function(target, opts, method, callback)
     local ext = vim.fn.fnamemodify(target, ":e")
     method    = method or "parse"
     if method == "dotnet" then
@@ -44,7 +45,7 @@ end
 ---@param target string .sln file to retrieve packages from (via all child csprojs)
 ---@param opts dotnet_opts
 ---@param callback fun(packages: { [string]:  dotnet_package } ): nil called once with the retrieved packages
-M.get_installed_packages_parse_sln    = function(target, opts, callback)
+M.get_installed_packages_parse_sln     = function(target, opts, callback)
     local sln_dir = vim.fn.fnamemodify(target, ":h")
     local lines   = vim.fn.readfile(target)
     local map     = {}
@@ -78,11 +79,11 @@ M.get_installed_packages_parse_sln    = function(target, opts, callback)
     callback(map)
 end
 
--- Retrieve all the packages used by the given target csproj by parsing the files
----@param target string .csproj file to retrieve packages from (via all child csprojs)
+-- Retrieve all the packages used by the given target csproj by parsing the file
+---@param target string .csproj file to retrieve packages from
 ---@param opts dotnet_opts
 ---@param callback fun(packages: dotnet_packages ): nil called once with the retrieved packages
-M.get_installed_packages_parse_csproj = function(target, opts, callback)
+M.get_installed_packages_parse_csproj  = function(target, opts, callback)
     local lines   = vim.fn.readfile(target)
     local content = table.concat(lines, "\n")
     local map     = {}
@@ -99,11 +100,42 @@ M.get_installed_packages_parse_csproj = function(target, opts, callback)
     callback(map)
 end
 
+-- Retrieve all the packages used by the given target csprojs by parsing the files
+---@param targets string[] .csproj file to retrieve packages from
+---@param opts dotnet_opts
+---@param callback fun(packages: dotnet_packages ): nil called once with the retrieved packages
+M.get_installed_packages_parse_csprojs = function(targets, opts, callback)
+    local map = {}
+    for _, target in ipairs(targets) do
+        M.get_installed_packages_parse_csproj(target, opts, function(proj_map)
+            for id, entry in pairs(proj_map) do
+                if not map[id] then
+                    map[id] = { projects = {}, mixed_versions = false }
+                end
+                table.insert(map[id].projects, entry.projects[1])
+            end
+        end)
+    end
+    for _, entry in pairs(map) do
+        local first = entry.projects[1] and entry.projects[1].version
+        for _, proj in ipairs(entry.projects) do
+            if proj.version ~= first then
+                entry.mixed_versions = true
+                break
+            end
+        end
+        local versions = vim.tbl_map(function(p) return p.version end, entry.projects)
+        table.sort(versions, utils.version_lt)
+        entry.version = versions[1]
+    end
+    callback(map)
+end
+
 -- Retrieve all the packages used by the given target using `dotnet list`
 ---@param target string .sln or .csproj file to retrieve packages from. .sln means get packages from all related csprojs.
 ---@param opts dotnet_opts
 ---@param callback fun(packages: dotnet_packages): nil called once with the retrieved packages
-M.get_installed_packages_dotnet       = function(target, opts, callback)
+M.get_installed_packages_dotnet        = function(target, opts, callback)
     local cwd = vim.fn.fnamemodify(target, ":h")
     local rel = vim.fn.fnamemodify(target, ":t")
     local cmd = { opts.dotnet_bin or "dotnet", "list", rel, "package", "--no-restore", "--format", "json" }
@@ -255,6 +287,17 @@ M.purge_version_cache = function(id, opts)
     end
 end
 
+---@class dotnet_search_result
+---@field id string
+---@field version string
+---@field downloads number
+---@field owners string?
+---@field description string?
+---@field project_url string?
+
+---Parse output from `dotnet packages search`
+---@param json_str string stdout
+---@return dotnet_search_result[]
 local function parse_package_search_results(json_str)
     local ok, decoded = pcall(vim.json.decode, json_str)
     if not ok or not decoded then return {} end
@@ -275,8 +318,13 @@ local function parse_package_search_results(json_str)
     end
     return packages
 end
+
+---Search packages with `dotnet package search`
+---@param query string search string
+---@param opts dotnet_opts
+---@param callback fun(ok: boolean, packages: dotnet_search_result?)
 M.search_packages = function(query, opts, callback)
-    vim.system(build_search_command(query, opts), {}, function(result)
+    vim.system(build_search_command(query, opts), { cwd = opts.cwd }, function(result)
         if result.code ~= 0 then
             callback(false, nil)
             return
@@ -287,6 +335,12 @@ M.search_packages = function(query, opts, callback)
 end
 
 
+---Install a package to the given csproj
+---@param target string path to .csproj
+---@param id string package to install
+---@param version string version to install
+---@param opts dotnet_opts
+---@param callback fun(ok: boolean, stdout: string, stderr: string)
 M.install_package = function(target, id, version, opts, callback)
     local label    = id .. " " .. version
     local progress = notify.make_progress("Installing " .. label)
@@ -311,6 +365,37 @@ M.install_package = function(target, id, version, opts, callback)
                 progress.finish("Installed " .. label)
             else
                 progress.cancel("Failed " .. label)
+            end
+            callback(result.code == 0, result.stdout, result.stderr)
+        end)
+    end)
+end
+
+---Remove a package from the given csproj
+---@param target string path to .csproj
+---@param id string package to remove
+---@param opts dotnet_opts
+---@param callback fun(ok: boolean, stdout: string, stderr: string)
+M.remove_package = function(target, id, opts, callback)
+    local progress = notify.make_progress("Removing " .. id)
+
+    local cmd      = { opts.dotnet_bin or "dotnet", "remove", target, "package", id }
+
+    vim.system(cmd, {
+        stdout = function(_, data)
+            if not data then return end
+            for _, line in ipairs(vim.split(data, "\n", { plain = true })) do
+                if line ~= "" then
+                    vim.schedule(function() progress.report(line) end)
+                end
+            end
+        end,
+    }, function(result)
+        vim.schedule(function()
+            if result.code == 0 then
+                progress.finish("Removed " .. id)
+            else
+                progress.cancel("Failed to remove " .. id)
             end
             callback(result.code == 0, result.stdout, result.stderr)
         end)

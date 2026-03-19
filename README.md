@@ -12,6 +12,7 @@ This Neovim plugin allows you to manage NuGet packages within your .NET projects
 - [plenary.nvim](https://github.com/nvim-lua/plenary.nvim)
 - [telescope.nvim](https://github.com/nvim-telescope/telescope.nvim)
 - [.NET SDK](https://dotnet.microsoft.com/en-us/download)
+- [fd](https://github.com/sharkdp/fd), though this can be overriden to be a different finder
 
 ## Installation
 
@@ -69,6 +70,7 @@ Default keymaps are provided but can be overridden in the setup function.
 
 - `<leader>ni` - Install a NuGet package.
 - `<leader>nr` - Remove a NuGet package.
+- `<leader>nc` - Clear nuget.nvim cache.
 
 # Configuration
 

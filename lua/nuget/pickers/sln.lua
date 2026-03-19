@@ -37,16 +37,16 @@ M.upgrades          = function(sln_path, installed, opts)
         return finders.new_table({
             results     = entries,
             entry_maker = function(e)
+                local flag, flag_hl = "", "DiagnosticWarn"
+                if e.mixed then
+                    flag, flag_hl = "mixed", "DiagnosticError"
+                elseif e.outdated then
+                    flag = "outdated"
+                end
                 return {
                     value   = e,
-                    ordinal = e.id,
+                    ordinal = e.id .. flag,
                     display = function(et)
-                        local flag, flag_hl = "", "DiagnosticWarn"
-                        if et.value.mixed then
-                            flag, flag_hl = "mixed", "DiagnosticError"
-                        elseif et.value.outdated then
-                            flag = "outdated"
-                        end
                         return displayer({
                             { "(" .. #et.value.projects .. ")", "DiagnosticHint" },
                             { flag,                             flag_hl },

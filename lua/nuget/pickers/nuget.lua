@@ -10,7 +10,6 @@ local notify        = require("nuget.notify")
 local finders       = require("telescope.finders")
 local actions       = require("telescope.actions")
 local action_state  = require("telescope.actions.state")
-local sorters       = require("telescope.sorters")
 
 local M             = {}
 
@@ -21,7 +20,7 @@ M.package_previewer = previewers.new_buffer_previewer({
     get_buffer_by_name = function(_, entry)
         return entry.value.id
     end,
-    define_preview = function(self, entry, status)
+    define_preview = function(self, entry, _)
         local pkg = entry.value
 
         local function val(v)
@@ -83,9 +82,10 @@ M.package_previewer = previewers.new_buffer_previewer({
     end,
 })
 
----@param targets string[]
----@param installed any
----@param opts any
+---Search for a nuget and install it on the given csprojs
+---@param targets string[] List of csprojs to install selected package to
+---@param installed dotnet_packages
+---@param opts { dotnet: dotnet_opts }
 M.search            = function(targets, installed, opts)
     opts = vim.tbl_deep_extend("force", {
         dotnet = {}
@@ -125,14 +125,15 @@ M.search            = function(targets, installed, opts)
             end,
             entry_maker = function(entry)
                 entry = keyed_existing_entries[entry.id] or entry
+                local flag = entry.outdated and "outdated" or ""
                 return make_entry.set_default_entry_mt({
                     value = entry,
-                    ordinal = entry.id,
+                    ordinal = entry.id .. flag,
                     display = function(et)
                         return displayer({
-                            { et.value.outdated and "outdated" or "", "DiagnosticWarn" },
-                            { et.value.version,                       "TelescopeResultsComment" },
-                            { et.value.id,                            "TelescopeResultsIdentifier" },
+                            { flag,             "DiagnosticWarn" },
+                            { et.value.version, "TelescopeResultsComment" },
+                            { et.value.id,      "TelescopeResultsIdentifier" },
                         })
                     end,
                 }, opts)
@@ -152,13 +153,15 @@ M.search            = function(targets, installed, opts)
                 actions.close(prompt_bufnr)
                 if sel then
                     M.install(targets, sel.value.id, vim.tbl_extend("force", opts, {
-                        on_complete = function(ok, new_version)
+                        on_complete = function(ok, _)
                             if ok then
-                                if installed[sel.value.id] then
-                                    installed[sel.value.id].version = new_version
-                                end
+                                dotnet.get_installed_packages_parse_csprojs(targets, opts.dotnet,
+                                    function(updated_installed)
+                                        M.search(targets, updated_installed, opts)
+                                    end)
+                            else
+                                M.search(targets, installed, opts)
                             end
-                            M.search(targets, installed, opts)
                         end
                     }))
                 end
@@ -186,7 +189,10 @@ M.search            = function(targets, installed, opts)
     end
 end
 
--- targets is list of target csprojs to install to
+---Create a picker to select the version of a given nuget and install it on the given csprojs
+---@param targets string[] List of csprojs to install selected package to
+---@param package string package to install
+---@param opts { dotnet: dotnet_opts, on_complete: fun(ok: boolean, new_version: string?) }
 M.install           = function(targets, package, opts)
     local progress = notify.make_progress("NuGet search " .. package)
 
@@ -293,7 +299,7 @@ M.install           = function(targets, package, opts)
                         entry_maker = function(e) return e end,
                     }),
                     sorter          = conf.generic_sorter({}),
-                    attach_mappings = function(prompt_bufnr, map)
+                    attach_mappings = function(prompt_bufnr, _)
                         local selected = false
                         vim.api.nvim_create_autocmd("BufUnload", {
                             buffer   = prompt_bufnr,
