@@ -1,55 +1,22 @@
 local entry_display = require("telescope.pickers.entry_display")
-local make_entry = require("telescope.make_entry")
-local previewers = require("telescope.previewers")
-local pickers = require("telescope.pickers")
-local conf = require("telescope.config").values
-local async_finder = require("nuget.finders.async_finder")
-local utils = require("nuget.utils")
+local make_entry    = require("telescope.make_entry")
+local previewers    = require("telescope.previewers")
+local pickers       = require("telescope.pickers")
+local conf          = require("telescope.config").values
+local async_finder  = require("nuget.finders.async_finder")
+local utils         = require("nuget.utils")
+local dotnet        = require("nuget.dotnet")
+local notify        = require("nuget.notify")
+local finders       = require("telescope.finders")
+local actions       = require("telescope.actions")
+local action_state  = require("telescope.actions.state")
+local sorters       = require("telescope.sorters")
 
-local ns_id = vim.api.nvim_create_namespace("NuGetHighlights")
+local M             = {}
 
-local function build_search_command(query, opts)
-    local cmd = { opts.dotnet_bin, "package", "search", query }
-    for _, source in ipairs(opts.sources) do
-        table.insert(cmd, "--source")
-        table.insert(cmd, source)
-    end
-    if opts.prerelease then
-        table.insert(cmd, "--prerelease")
-    end
-    table.insert(cmd, "--format")
-    table.insert(cmd, "json")
-    table.insert(cmd, "--verbosity")
-    table.insert(cmd, "detailed")
-    table.insert(cmd, "--take")
-    table.insert(cmd, "10")
-    return cmd
-end
+local ns_id         = vim.api.nvim_create_namespace("NuGetHighlights")
 
-local function parse_results(json_str)
-    local ok, decoded = pcall(vim.json.decode, json_str)
-    if not ok or not decoded then return {} end
-    local packages = {}
-    for _, source in ipairs(decoded.searchResult or {}) do
-        for _, pkg in ipairs(source.packages or {}) do
-            if type(pkg) == "table" and pkg.id then
-                table.insert(packages, {
-                    id          = pkg.id,
-                    version     = pkg.latestVersion or "unknown",
-                    downloads   = pkg.totalDownloads or 0,
-                    owners      = pkg.owners or "",
-                    description = pkg.description or "",
-                    project_url = pkg.projectUrl or "",
-                })
-            end
-        end
-    end
-    return packages
-end
-
-local ns_id = vim.api.nvim_create_namespace("nuget_preview")
-
-local package_previewer = previewers.new_buffer_previewer({
+M.package_previewer = previewers.new_buffer_previewer({
     title = "Package Details",
     get_buffer_by_name = function(_, entry)
         return entry.value.id
@@ -116,7 +83,7 @@ local package_previewer = previewers.new_buffer_previewer({
     end,
 })
 
-return function(opts)
+M.search            = function(opts)
     opts = vim.tbl_deep_extend("force", {
         sources = {},
         prerelease = false,
@@ -164,3 +131,170 @@ return function(opts)
         previewer = package_previewer,
     }):find()
 end
+
+-- targets is list of target csprojs to install to
+M.install           = function(targets, package, opts)
+    local progress = notify.make_progress("NuGet search" .. package)
+
+    -- generate a list of siblings that share the same sln (if any) with any of
+    -- the targets, including targets themselves
+    progress.report("Building project map")
+    local project_map = dotnet.build_project_map(opts.dotnet)
+    local slns = {}
+    local csprojs_for_counts = {}
+    for _, target in ipairs(targets) do
+        local entry = project_map[target]
+        if entry.sln then
+            slns[entry.sln] = true
+        end
+        csprojs_for_counts[target] = true
+    end
+    for csproj, info in pairs(project_map) do
+        if info.sln and slns[info.sln] then
+            csprojs_for_counts[csproj] = true
+        end
+    end
+
+    -- build version→projects map from siblings
+    local version_projects = {}
+    local pending = vim.tbl_count(csprojs_for_counts)
+    local function on_siblings_done()
+        progress.report("Querying NuGet")
+        dotnet.get_latest_versions(package, opts.dotnet, function(result)
+            vim.schedule(function()
+                progress.finish("Found " .. tostring(#result.versions) .. " versions")
+
+                local displayer = entry_display.create({
+                    separator = " ",
+                    items     = { { width = 20 }, { remaining = true } },
+                })
+
+                local entries = {}
+                for _, v in ipairs(result.versions) do
+                    -- basically we want current, latest, used in other csprojs, everything else
+                    local projs     = version_projects[v] or {}
+                    local other_cnt = #projs
+                    local is_cur    = false
+                    for _, proj in ipairs(projs) do
+                        if vim.tbl_contains(targets, proj) then
+                            is_cur = true
+                        else
+                            other_cnt = other_cnt + 1
+                        end
+                    end
+                    local is_latest = v == result.versions[1]
+                    local prefix
+                    if is_cur then
+                        prefix = "3_"
+                    elseif is_latest then
+                        prefix = "2_"
+                    elseif other_cnt > 0 then
+                        prefix = "1_"
+                    else
+                        prefix = "0_"
+                    end
+                    local ordinal = prefix .. utils.version_ordinal(v)
+                    table.insert(entries, {
+                        value     = v,
+                        ordinal   = ordinal,
+                        is_cur    = is_cur,
+                        other_cnt = other_cnt,
+                        is_latest = is_latest,
+                        display   = function(et)
+                            local badge, badge_hl
+                            if et.is_cur then
+                                badge, badge_hl = "current", "DiagnosticOk"
+                            elseif et.is_latest then
+                                badge, badge_hl = "latest", "DiagnosticInfo"
+                            elseif et.other_cnt > 0 then
+                                badge, badge_hl = "used by " .. tostring(et.other_cnt), "DiagnosticHint"
+                            else
+                                badge, badge_hl = "", "TelescopeResultsComment"
+                            end
+                            return displayer({
+                                { et.value, et.is_cur and "DiagnosticOk" or "TelescopeResultsNormal" },
+                                { badge,    badge_hl },
+                            })
+                        end,
+                    })
+                end
+
+                -- for the initial (unsorted) view
+                table.sort(entries, function(a, b) return a.ordinal > b.ordinal end)
+
+                pickers.new({}, {
+                    initial_mode    = "normal",
+                    prompt_title    = "Select Version | " .. package,
+                    finder          = finders.new_table({
+                        results     = entries,
+                        entry_maker = function(e) return e end,
+                    }),
+                    sorter          = conf.generic_sorter({}),
+                    attach_mappings = function(prompt_bufnr, map)
+                        local selected = false
+                        vim.api.nvim_create_autocmd("BufUnload", {
+                            buffer   = prompt_bufnr,
+                            once     = true,
+                            callback = function()
+                                vim.schedule(function()
+                                    if not selected then
+                                        if opts.on_complete then opts.on_complete(false, nil) end
+                                    end
+                                end)
+                            end,
+                        })
+
+
+                        actions.select_default:replace(function()
+                            local sel = action_state.get_selected_entry()
+                            actions.close(prompt_bufnr)
+                            if not sel then
+                                return
+                            end
+                            local close            = notify.show_info_float("NuGet", "Installing " ..
+                                package .. "\nVersion " .. sel.value .. "...")
+                            selected               = true
+                            local pending_installs = #targets
+                            local all_ok           = true
+                            for _, target in ipairs(targets) do
+                                dotnet.install_package(target, package, sel.value, opts, function(ok, stdout, stderr)
+                                    if not ok then
+                                        all_ok = false
+                                        notify.show_error_float("Failed: " .. package .. " " .. sel.value,
+                                            (stdout or "") .. "\n" .. (stderr or ""))
+                                    end
+                                    pending_installs = pending_installs - 1
+                                    if pending_installs == 0 then
+                                        close()
+                                        if opts.on_complete then opts.on_complete(all_ok, sel.value) end
+                                    end
+                                end)
+                            end
+                        end)
+                        return true
+                    end,
+                }):find()
+            end)
+        end)
+    end
+
+    if pending == 0 then
+        on_siblings_done()
+        return
+    end
+
+    for csproj, _ in pairs(csprojs_for_counts) do
+        dotnet.get_installed_packages_parse_csproj(csproj, opts.dotnet,
+            function(map)
+                local info = map[package]
+                if info and info.version then
+                    version_projects[info.version] = version_projects[info.version] or {}
+                    table.insert(version_projects[info.version], csproj)
+                end
+                pending = pending - 1
+                if pending == 0 then on_siblings_done() end
+            end)
+    end
+end
+
+return M
