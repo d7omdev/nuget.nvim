@@ -19,6 +19,15 @@ return function(opts)
 
     local callable = function(_, prompt, process_result, process_complete)
         if not prompt or prompt == "" then
+            if opts.initial_results then
+                for i, item in ipairs(opts.initial_results) do
+                    local entry = entry_maker(item)
+                    if entry then
+                        entry.index = i
+                        process_result(entry)
+                    end
+                end
+            end
             process_complete()
             return
         end

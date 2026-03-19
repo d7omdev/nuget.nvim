@@ -39,20 +39,18 @@ M.make_progress = function(title)
 end
 
 --- Show failure output in a floating scratch buffer the user can read and close.
-M.show_error_float = function(title, output)
+M.show_error_float = function(title, output, on_close)
     local buf = vim.api.nvim_create_buf(false, true)
     vim.bo[buf].buftype = "nofile"
     vim.bo[buf].bufhidden = "wipe"
     vim.bo[buf].filetype = "text"
 
     local lines = vim.split(output or "(no output)", "\n", { plain = true })
-    table.insert(lines, 1, title)
-    table.insert(lines, 2, string.rep("─", math.min(80, vim.o.columns - 4)))
     table.insert(lines, "")
     table.insert(lines, "[press q or <Esc> to close]")
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
 
-    local width = math.min(100, vim.o.columns - 4)
+    local width = math.min(60, vim.o.columns - 4)
     local height = math.min(#lines + 2, vim.o.lines - 6)
     local win = vim.api.nvim_open_win(buf, true, {
         relative = "editor",
@@ -62,7 +60,7 @@ M.show_error_float = function(title, output)
         col = math.floor((vim.o.columns - width) / 2),
         style = "minimal",
         border = "rounded",
-        title = " NuGet Error ",
+        title = " " .. title .. " ",
         title_pos = "center",
     })
     vim.wo[win].wrap = true
@@ -73,6 +71,14 @@ M.show_error_float = function(title, output)
             vim.api.nvim_win_close(win, true)
         end, { buffer = buf, nowait = true, silent = true })
     end
+
+    vim.api.nvim_create_autocmd("WinClosed", {
+        pattern  = tostring(win),
+        once     = true,
+        callback = function()
+            if on_close then on_close() end
+        end,
+    })
 end
 
 M.show_info_float = function(title, message)

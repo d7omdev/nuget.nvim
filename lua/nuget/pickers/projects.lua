@@ -6,17 +6,14 @@ local action_state    = require("telescope.actions.state")
 local notify          = require("nuget.notify")
 local dotnet          = require("nuget.dotnet")
 
+---@class (exact) projects_opts
+---@field find_command string override fd command
+---@field filter "csproj" | "sln" | nil filter the types of files that show up in the picker. `nil` = sln and csproj
+---@field dotnet dotnet_opts additional settings to pass to `nuget.dotnet` commands
+
 --- Open a project/solution file picker.
----
---- opts
----   .find_command   override fd command
----   .filter         "csproj" | "sln" | nil (show both)
----   .prompt_title   override default title
----   .dotnet         additional settings to pass to nuget.dotnet commands
----
---- callback({ path, filetype, installed, opts })
----   Called on the main loop after the user picks a file and installed packages
----   have been fetched.  `installed` is the map from dotnet.get_installed_packages.
+---@param opts projects_opts
+---@param callback fun(args: { path: string, filetype: string, installed: dotnet_packages, opts: projects_opts}): nil # Called on the main loop after the user picks a file and installed packages have been fetched.
 return function(opts, callback)
     opts = opts or {}
 
@@ -39,8 +36,7 @@ return function(opts, callback)
     })
 
     local proj_opts = vim.tbl_extend("force", opts, {
-        prompt_title = opts.prompt_title or "Select Project / Solution",
-
+        prompt_title = "Select Project / Solution",
         entry_maker = function(line)
             local fn       = telescope_utils.path_tail(line)
             local path     = string.sub(line, 1, -(#fn + 1))
@@ -69,7 +65,7 @@ return function(opts, callback)
                 if not sel then return end
 
                 local progress = notify.make_progress("Loading installed packages…")
-                dotnet.get_installed_packages(sel.path, opts.dotnet, function(installed)
+                dotnet.get_installed_packages(sel.path, opts.dotnet, nil, function(installed)
                     vim.schedule(function()
                         progress.finish(vim.tbl_count(installed) .. " packages indexed")
                         callback({ path = sel.path, filetype = sel.filetype, installed = installed, opts = opts })
@@ -79,28 +75,6 @@ return function(opts, callback)
             return true
         end,
     })
-
-    -- opts.entry_maker = function(line)
-    --     local fn = utils.path_tail(line)
-    --     local path = string.sub(line, 1, -(#fn + 1))
-    --
-    --     local ord = opts.search_directory and line or fn
-    --     local entry = {
-    --         ordinal = ord,
-    --         __fn = fn,
-    --         __path = path,
-    --         path = line
-    --     }
-    --
-    --
-    --     entry.display = function(et)
-    --         return displayer({
-    --             { et.__path, "TelescopeResultsComment" },
-    --             { et.__fn }
-    --         })
-    --     end
-    --     return entry;
-    -- end
 
     return builtin.find_files(proj_opts)
 end

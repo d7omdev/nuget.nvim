@@ -83,58 +83,112 @@ M.package_previewer = previewers.new_buffer_previewer({
     end,
 })
 
-M.search            = function(opts)
+---@param targets string[]
+---@param installed any
+---@param opts any
+M.search            = function(targets, installed, opts)
     opts = vim.tbl_deep_extend("force", {
-        sources = {},
-        prerelease = false,
-        dotnet_bin = "dotnet",
+        dotnet = {}
     }, opts or {})
 
     local displayer = entry_display.create({
         separator = " ",
-        items = {
-            { width = 50 },
-            { remaining = true },
-        },
+        items     = { { width = 8 }, { width = 15 }, { remaining = true } },
     })
 
-    pickers.new(opts, {
-        prompt_title = "NuGet Search",
-        finder = async_finder({
+    local existing_entries = {}
+    local keyed_existing_entries = {}
+    for id, info in pairs(installed) do
+        local entry = {
+            id       = id,
+            version  = info.version,
+            outdated = false, -- populated as fetches complete
+        }
+        table.insert(existing_entries, entry)
+        keyed_existing_entries[entry.id] = entry
+    end
+
+    local function make_finder()
+        return async_finder({
+            initial_results = existing_entries,
             async_fn = function(prompt, on_result, on_complete)
-                vim.system(build_search_command(prompt, opts), {}, function(result)
-                    if result.code ~= 0 then
+                dotnet.search_packages(prompt, opts.dotnet, function(ok, result)
+                    if not ok then
                         on_complete()
                         return
                     end
-                    local packages = parse_results(result.stdout)
-                    for i, pkg in ipairs(packages) do
+                    for i, pkg in ipairs(result) do
                         on_result(i, pkg)
                     end
                     on_complete()
                 end)
             end,
             entry_maker = function(entry)
+                entry = keyed_existing_entries[entry.id] or entry
                 return make_entry.set_default_entry_mt({
                     value = entry,
                     ordinal = entry.id,
                     display = function(et)
                         return displayer({
-                            { et.value.id,      "TelescopeResultsIdentifier" },
-                            { et.value.version, "TelescopeResultsComment" },
+                            { et.value.outdated and "outdated" or "", "DiagnosticWarn" },
+                            { et.value.version,                       "TelescopeResultsComment" },
+                            { et.value.id,                            "TelescopeResultsIdentifier" },
                         })
                     end,
                 }, opts)
             end
-        }),
+        })
+    end
+
+
+    local picker = pickers.new(opts, {
+        prompt_title = "NuGet Search",
+        finder = make_finder(),
         sorter = conf.generic_sorter(opts),
-        previewer = package_previewer,
-    }):find()
+        previewer = M.package_previewer,
+        attach_mappings = function(prompt_bufnr)
+            actions.select_default:replace(function()
+                local sel = action_state.get_selected_entry()
+                actions.close(prompt_bufnr)
+                if sel then
+                    M.install(targets, sel.value.id, vim.tbl_extend("force", opts, {
+                        on_complete = function(ok, new_version)
+                            if ok then
+                                if installed[sel.value.id] then
+                                    installed[sel.value.id].version = new_version
+                                end
+                            end
+                            M.search(targets, installed, opts)
+                        end
+                    }))
+                end
+            end)
+            return true
+        end,
+    })
+    picker:find()
+
+    -- kick off all fetches immediately after picker opens
+    for _, entry in ipairs(existing_entries) do
+        dotnet.get_latest_versions(entry.id, opts.dotnet, function(ok, cached)
+            if not ok then
+                return
+            end
+            entry.description = cached.description
+            entry.project_url = cached.project_url
+            if cached.latest ~= entry.version then
+                vim.schedule(function()
+                    entry.outdated = true
+                    picker:refresh(make_finder(), { reset_prompt = false })
+                end)
+            end
+        end)
+    end
 end
 
 -- targets is list of target csprojs to install to
 M.install           = function(targets, package, opts)
-    local progress = notify.make_progress("NuGet search" .. package)
+    local progress = notify.make_progress("NuGet search " .. package)
 
     -- generate a list of siblings that share the same sln (if any) with any of
     -- the targets, including targets themselves
@@ -160,7 +214,16 @@ M.install           = function(targets, package, opts)
     local pending = vim.tbl_count(csprojs_for_counts)
     local function on_siblings_done()
         progress.report("Querying NuGet")
-        dotnet.get_latest_versions(package, opts.dotnet, function(result)
+        dotnet.get_latest_versions(package, opts.dotnet, function(ok, result)
+            if not ok then
+                progress.finish("Found 0 versions")
+                vim.schedule(function()
+                    notify.show_error_float("NuGet", "Couldn't find any versions for NuGet " .. package, function()
+                        if opts.on_complete then opts.on_complete(false, nil) end
+                    end)
+                end)
+                return
+            end
             vim.schedule(function()
                 progress.finish("Found " .. tostring(#result.versions) .. " versions")
 
@@ -207,7 +270,7 @@ M.install           = function(targets, package, opts)
                             elseif et.is_latest then
                                 badge, badge_hl = "latest", "DiagnosticInfo"
                             elseif et.other_cnt > 0 then
-                                badge, badge_hl = "used by " .. tostring(et.other_cnt), "DiagnosticHint"
+                                badge, badge_hl = "(" .. tostring(et.other_cnt) .. ")", "DiagnosticHint"
                             else
                                 badge, badge_hl = "", "TelescopeResultsComment"
                             end
@@ -257,18 +320,19 @@ M.install           = function(targets, package, opts)
                             local pending_installs = #targets
                             local all_ok           = true
                             for _, target in ipairs(targets) do
-                                dotnet.install_package(target, package, sel.value, opts, function(ok, stdout, stderr)
-                                    if not ok then
-                                        all_ok = false
-                                        notify.show_error_float("Failed: " .. package .. " " .. sel.value,
-                                            (stdout or "") .. "\n" .. (stderr or ""))
-                                    end
-                                    pending_installs = pending_installs - 1
-                                    if pending_installs == 0 then
-                                        close()
-                                        if opts.on_complete then opts.on_complete(all_ok, sel.value) end
-                                    end
-                                end)
+                                dotnet.install_package(target, package, sel.value, opts,
+                                    function(install_ok, stdout, stderr)
+                                        if not install_ok then
+                                            all_ok = false
+                                            notify.show_error_float("Failed: " .. package .. " " .. sel.value,
+                                                (stdout or "") .. "\n" .. (stderr or ""))
+                                        end
+                                        pending_installs = pending_installs - 1
+                                        if pending_installs == 0 then
+                                            close()
+                                            if opts.on_complete then opts.on_complete(all_ok, sel.value) end
+                                        end
+                                    end)
                             end
                         end)
                         return true

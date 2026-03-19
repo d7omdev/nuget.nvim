@@ -13,7 +13,7 @@ return function(opts)
         if result.filetype == "sln" then
             pickers.sln.upgrades(result.path, result.installed, opts)
         else
-            vim.notify('picked csproj')
+            pickers.csproj.upgrades(result.path, result.installed, opts)
         end
     end)
 end
