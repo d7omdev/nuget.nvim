@@ -91,8 +91,8 @@ By default, the plugin will parse `.sln` and `.csproj` files with regular expres
 ```lua
 require("nuget").setup({
     dotnet = {
-     -- can be "parse" or "dotnet"
-        method = "parse"
+        -- can be "parse" or "dotnet"
+        method = "dotnet"
     }
 })
 ```
@@ -115,7 +115,7 @@ It takes the following options:
     dotnet = {
         -- a list of string urls for any additional NuGet sources
         -- these will be passed to dotnet commands as `--source` arguments
-        sources = { },
+        sources = {},
         -- enables `--prerelease` on dotnet commands
         prerelease = true,
         -- change the main binary used to call the dotnet api
@@ -132,8 +132,8 @@ It takes the following options:
 ### Version Select
 ![](README-img/version.png)
 
-### NuGet Search
-![](README-img/search.png)
+### Target Search
+![](README-img/target.png)
 
 ## Contribution
 
