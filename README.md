@@ -15,7 +15,8 @@ This Neovim plugin allows you to manage NuGet packages within your .NET projects
 - [plenary.nvim](https://github.com/nvim-lua/plenary.nvim)
 - [telescope.nvim](https://github.com/nvim-telescope/telescope.nvim)
 - [fidget.nvim](https://github.com/j-hui/fidget.nvim) (optional)
-- [.NET SDK](https://dotnet.microsoft.com/en-us/download)
+- [.NET SDK](https://dotnet.microsoft.com/en-us/download) 8.0.2xx or later
+  - This package uses [`dotnet package search`](https://learn.microsoft.com/en-us/dotnet/core/tools/dotnet-package-search) to search NuGet repositories, which was made available starting with the .NET 8.0.2 SDK.
 - [fd](https://github.com/sharkdp/fd)
 
 ## Installation
