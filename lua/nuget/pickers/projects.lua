@@ -47,12 +47,12 @@ return function(opts, callback)
                 __path   = path,
                 path     = line,
                 filetype = filetype,
+                hl       = filetype == "sln" and "TelescopeResultsConstant" or "TelescopeResultsNormal",
             }
             entry.display  = function(et)
                 return displayer({
                     { et.__path, "TelescopeResultsComment" },
-                    { et.__fn, et.is_sln and "TelescopeResultsSpecialComment"
-                    or "TelescopeResultsNormal" },
+                    { et.__fn,   et.hl },
                 })
             end
             return entry

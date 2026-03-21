@@ -66,7 +66,7 @@ M.remove = function(csproj_path, installed, opts)
                 if sel then
                     dotnet.remove_package(csproj_path, sel.value.id, opts.dotnet, function(ok, stdout, stderr)
                         if not ok then
-                            notify.show_error_float("Failed: " .. package .. " " .. sel.value,
+                            notify.show_error_float("Failed: " .. sel.value.id .. " " .. sel.value,
                                 (stdout or "") .. "\n" .. (stderr or ""))
                             M.remove(csproj_path, installed, opts)
                             return

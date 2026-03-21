@@ -84,7 +84,7 @@ require("nuget").setup({
 
 This will override the default keymaps with the ones you provide.
 
-### Project File Parsing  
+### Project File Parsing
 
 By default, the plugin will parse `.sln` and `.csproj` files with regular expressions. This is fast but error-prone. You can change the strategy to use `dotnet list`, which is more robust but slower.
 

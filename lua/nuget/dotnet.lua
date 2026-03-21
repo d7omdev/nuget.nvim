@@ -21,7 +21,7 @@ end
 ---@class (exact) dotnet_package
 ---@field mixed_versions boolean whether the projects contain multiple different versions
 ---@field projects { path: string, version: string } projects that contain this package
----@field version string the highest version used by any of the projects
+---@field version string the lowest version used by any of the projects
 
 ---@alias dotnet_packages { [string]: dotnet_package }
 
@@ -34,6 +34,25 @@ end
 ---@alias dotnet_versions { [string]: dotnet_version }
 
 ---@alias dotnet_map { [string]: { sln: string? }}
+
+--- Parses a .sln file and returns a list of absolute .csproj paths
+--- @param sln_path string Absolute path to the .sln file
+--- @return string[] List of absolute .csproj paths
+parse_sln                              = function(sln_path)
+    local sln_dir  = vim.fn.fnamemodify(sln_path, ":h")
+    local lines    = vim.fn.readfile(sln_path)
+    local projects = {}
+
+    for _, line in ipairs(lines) do
+        local rel_path = line:match('"([^"]+%.csproj)"')
+        if rel_path then
+            rel_path = rel_path:gsub("\\", "/")
+            table.insert(projects, sln_dir .. "/" .. rel_path)
+        end
+    end
+
+    return projects
+end
 
 -- Retrieve all the packages used by the given target
 ---@param target string .sln or .csproj file to retrieve packages from. .sln means get packages from all related csprojs.
@@ -68,20 +87,15 @@ M.get_installed_packages_parse_sln     = function(target, opts, callback)
     local sln_dir = vim.fn.fnamemodify(target, ":h")
     local lines   = vim.fn.readfile(target)
     local map     = {}
-    for _, line in ipairs(lines) do
-        local rel_path = line:match('"([^"]+%.csproj)"')
-        if rel_path then
-            rel_path = rel_path:gsub("\\", "/")
-            local abs_path = sln_dir .. "/" .. rel_path
-            M.get_installed_packages_parse_csproj(abs_path, opts, function(proj_map)
-                for id, entry in pairs(proj_map) do
-                    if not map[id] then
-                        map[id] = { projects = {}, mixed_versions = false }
-                    end
-                    table.insert(map[id].projects, entry.projects[1])
+    for _, abs_path in ipairs(parse_sln(target)) do
+        M.get_installed_packages_parse_csproj(abs_path, opts, function(proj_map)
+            for id, entry in pairs(proj_map) do
+                if not map[id] then
+                    map[id] = { projects = {}, mixed_versions = false }
                 end
-            end)
-        end
+                table.insert(map[id].projects, entry.projects[1])
+            end
+        end)
     end
     for _, entry in pairs(map) do
         local first = entry.projects[1] and entry.projects[1].version
@@ -494,8 +508,12 @@ end
 ---@return dotnet_map
 M.build_project_map = function(opts)
     local cwd = vim.fn.getcwd()
-    local lines = vim.fn.systemlist(
-        "fd --type f --color never -e csproj -e sln --exclude .git -L", cwd)
+    local fd = "fd"
+    if 1 ~= vim.fn.executable "fd" then
+        fd = "fdfind"
+    end
+    local lines = vim.fn.systemlist(fd .. " --type f --color never -e csproj -e sln --exclude .git -L", cwd)
+
     local sln_files = {}
     local csproj_files = {}
     for _, line in ipairs(lines) do
@@ -512,16 +530,29 @@ M.build_project_map = function(opts)
         map[csproj] = { sln = nil }
     end
     for _, sln in ipairs(sln_files) do
-        local sln_dir   = vim.fn.fnamemodify(sln, ":h")
-        local sln_lines = vim.fn.systemlist("dotnet sln " .. vim.fn.shellescape(cwd .. "/" .. sln) .. " list")
-        for _, line in ipairs(sln_lines) do
-            local rel = line:gsub("\\", "/"):match("([^\r]+%.csproj)")
-            if rel then
-                local joined = sln_dir ~= "." and (sln_dir .. "/" .. rel) or rel
-                local norm = vim.fn.fnamemodify(joined, ":.")
-                if map[norm] and map[norm].sln == nil then
-                    map[norm].sln = sln
+        local sln_dir = vim.fn.fnamemodify(sln, ":h")
+        local csproj_paths
+
+        if _opts.method == "dotnet" then
+            vim.notify('foo')
+            local sln_lines = vim.fn.systemlist(opts.dotnet_bin ..
+                " sln " .. vim.fn.shellescape(cwd .. "/" .. sln) .. " list")
+            csproj_paths = {}
+            for _, line in ipairs(sln_lines) do
+                local rel = line:gsub("\\", "/"):match("([^\r]+%.csproj)")
+                if rel then
+                    local joined = sln_dir ~= "." and (sln_dir .. "/" .. rel) or rel
+                    table.insert(csproj_paths, vim.fn.fnamemodify(joined, ":."))
                 end
+            end
+        else
+            csproj_paths = vim.tbl_map(function(p)
+                return vim.fn.fnamemodify(p, ":.")
+            end, parse_sln(sln))
+        end
+        for _, norm in ipairs(csproj_paths) do
+            if map[norm] and map[norm].sln == nil then
+                map[norm].sln = sln
             end
         end
     end

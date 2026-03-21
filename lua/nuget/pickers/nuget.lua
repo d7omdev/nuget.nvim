@@ -200,6 +200,7 @@ M.install           = function(targets, package, opts)
     -- the targets, including targets themselves
     progress.report("Building project map")
     local project_map = dotnet.build_project_map(opts.dotnet)
+
     local slns = {}
     local csprojs_for_counts = {}
     for _, target in ipairs(targets) do
@@ -240,9 +241,8 @@ M.install           = function(targets, package, opts)
 
                 local entries = {}
                 for _, v in ipairs(result.versions) do
-                    -- basically we want current, latest, used in other csprojs, everything else
                     local projs     = version_projects[v] or {}
-                    local other_cnt = #projs
+                    local other_cnt = 0
                     local is_cur    = false
                     for _, proj in ipairs(projs) do
                         if vim.tbl_contains(targets, proj) then

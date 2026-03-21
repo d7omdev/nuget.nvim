@@ -10,7 +10,7 @@ return function(opts)
 
     local function debounce(thunk)
         if timer ~= nil then timer:stop() end
-        timer = vim.loop.new_timer()
+        timer = vim.uv.new_timer()
         timer:start(debounce_ms, 0, function()
             thunk()
             timer:stop()
