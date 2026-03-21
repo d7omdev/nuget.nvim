@@ -13,11 +13,13 @@ function utils.humanize(n)
 end
 
 local function parse_version(v)
-    local base = v:match("^([%d%.]+)") or v
+    local base, suffix = v:match("^([%d%.]+)-?(.*)$")
+    base = base or v
     local parts = {}
     for n in base:gmatch("%d+") do
         table.insert(parts, tonumber(n))
     end
+    parts.suffix = suffix
     return parts
 end
 
@@ -27,7 +29,12 @@ function utils.version_lt(a, b)
         local x, y = pa[i] or 0, pb[i] or 0
         if x ~= y then return x < y end
     end
-    return false
+
+    local sa, sb = pa.suffix or "", pb.suffix or ""
+    if sa == sb then return false end
+    if sa == "" then return false end -- release > anything
+    if sb == "" then return true end  -- anything < release
+    return sa < sb
 end
 
 function utils.sort_versions(versions, newest_first)

@@ -215,7 +215,7 @@ M.install           = function(targets, package, opts)
         end
     end
 
-    -- build version→projects map from siblings
+    -- build version -> projects map from siblings
     local version_projects = {}
     local pending = vim.tbl_count(csprojs_for_counts)
     local function on_siblings_done()
@@ -235,7 +235,7 @@ M.install           = function(targets, package, opts)
 
                 local displayer = entry_display.create({
                     separator = " ",
-                    items     = { { width = 20 }, { remaining = true } },
+                    items     = { { width = 30 }, { remaining = true } },
                 })
 
                 local entries = {}
